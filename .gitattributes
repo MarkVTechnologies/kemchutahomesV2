@@ -1,0 +1,2 @@
+# Shell scripts run on the Linux host; keep LF even on Windows checkouts.
+*.sh text eol=lf

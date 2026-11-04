@@ -223,3 +223,36 @@ cd ~/kemchuta-api
 ~/nodevenv/kemchuta-api/22/bin/node scripts/restoreDb.js ~/db-backups/<file>
 ~/nodevenv/kemchuta-api/22/bin/node scripts/restoreDb.js ~/db-backups/<file> --yes --drop
 ```
+
+## Automatic API deploys
+
+Pushes to `master` that change `server/` and pass the server tests move the
+`api-release` branch (CI job `release-api`). The host deploys that branch
+with `server/scripts/deploy/deploy.sh`. The script downloads the commit,
+backs up the current code, copies the new code over `~/kemchuta-api`
+(`.env` and `node_modules` are never touched), runs `npm install` only if
+`package-lock.json` changed, restarts the app, and waits for `/healthz` to
+report ok with a fresh uptime. If that fails, it restores the backup and
+records the commit in `~/.deploy/failed-sha` so cron won't retry it. The
+log is in `~/.deploy/deploy.log`.
+
+**Pull (cron, no SSH needed).** In DirectAdmin → Cron Jobs, every 5 minutes:
+
+```
+*/5 * * * * /bin/bash /home/kemchut1/kemchuta-api/scripts/deploy/deploy.sh >> /home/kemchut1/.deploy/cron.log 2>&1
+```
+
+Run it once with `--check` first (a temporary cron line, or via SSH) and
+read the output in `cron.log`. If the repo is private, put a fine-grained
+read-only token (Contents: read, this repo only) in
+`/home/kemchut1/.deploy/github-token`.
+
+**Push (SSH).** Once the host enables shell access, add repo secrets
+`API_SSH_HOST`, `API_SSH_PORT`, `API_SSH_USER`, `API_SSH_KEY` (a private key
+whose public half is in the host's authorized keys) and
+`API_SSH_KNOWN_HOSTS` (`ssh-keyscan -p <port> <host>`), then set the repo
+variable `API_DEPLOY_SSH=true`. Both triggers can stay on: they share a
+lock, and whichever runs second sees the commit is already live.
+
+**Manual redeploy / rollback.** `deploy.sh --force <sha>` deploys any
+commit. Backups of the last 5 versions are in `~/.deploy/backups/`.

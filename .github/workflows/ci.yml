@@ -33,6 +33,57 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  # ── API release + deploy ───────────────────────────────────────────────────
+  # Moves the `api-release` branch to this commit once the server tests pass,
+  # but only when server/ actually changed. The host deploys from that branch:
+  #   • pull: a cron job runs server/scripts/deploy/deploy.sh every 5 minutes
+  #   • push: deploy-api-ssh below runs it immediately (when SSH is enabled)
+  release-api:
+    name: Release API (tests passed)
+    needs: [secrets, server]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: release
+        run: |
+          if git rev-parse -q --verify origin/api-release >/dev/null &&
+             git diff --quiet origin/api-release HEAD -- server/; then
+            echo "server/ unchanged since the last release; nothing to deploy"
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          else
+            git push origin HEAD:refs/heads/api-release --force
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy-api-ssh:
+    name: Deploy API over SSH
+    needs: release-api
+    # Opt-in: set repo variable API_DEPLOY_SSH=true once SSH secrets exist.
+    if: needs.release-api.outputs.released == 'true' && vars.API_DEPLOY_SSH == 'true'
+    runs-on: ubuntu-latest
+    concurrency: api-deploy
+    steps:
+      - name: Run deploy.sh on the host
+        env:
+          SSH_HOST: ${{ secrets.API_SSH_HOST }}
+          SSH_PORT: ${{ secrets.API_SSH_PORT }}
+          SSH_USER: ${{ secrets.API_SSH_USER }}
+          SSH_KEY: ${{ secrets.API_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.API_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT:-22}" -o BatchMode=yes \
+            "$SSH_USER@$SSH_HOST" "bash ~/kemchuta-api/scripts/deploy/deploy.sh $GITHUB_SHA"
+
   client:
     name: Client (lint, typecheck, unit tests, link check, build)
     runs-on: ubuntu-latest
