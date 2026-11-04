@@ -278,7 +278,11 @@ export const handleChat = async (req, res) => {
         },
         body: JSON.stringify({
           model: "openai/gpt-oss-120b",
-          max_tokens: 600,
+          // gpt-oss is a reasoning model: its hidden reasoning counts against
+          // this budget. At 600 tokens replies were cut off mid-list or came
+          // back empty. Keep reasoning short and leave room for the answer.
+          max_completion_tokens: 2048,
+          reasoning_effort: "low",
           temperature: 0.4,
           stream: wantsStream,
           messages: [{ role: "system", content: systemPrompt }, ...trimmed],
