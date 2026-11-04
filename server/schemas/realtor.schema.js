@@ -6,6 +6,7 @@ export const realtorSignupSchema = z.object({
   lastName: z.string().trim().min(1, "Last name is required"),
   email,
   phone: z.string().trim().min(7, "Valid phone number is required"),
+  country: z.string().trim().max(100).optional(),
   state: z.string().trim().optional(),
   bank: z.string().trim().optional(),
   accountName: z.string().trim().optional(),

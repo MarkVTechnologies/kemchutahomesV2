@@ -12,6 +12,8 @@ const RealtorSchema = new mongoose.Schema({
   },
   phone: { type: String, required: true, trim: true },
   birthDate: { type: Date, required: true },
+  // Country of residence — optional; older realtors predate it (Nigeria).
+  country: { type: String, trim: true },
   state: { type: String },
   bank: { type: String },
   accountName: { type: String },
