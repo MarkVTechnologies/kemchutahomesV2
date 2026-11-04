@@ -29,7 +29,9 @@ export const submitContactForm = async (req, res) => {
     const safePhone = escapeHtml(phone || "Not provided");
     const safeBranch = escapeHtml(branch || "Not specified");
     const safeSubject = escapeHtml(subject);
-    const safeMessage = escapeHtml(message);
+    // Keep the sender's line breaks: inside a <p> they'd otherwise collapse
+    // into one paragraph. Escaping first means no user-supplied tags survive.
+    const safeMessage = escapeHtml(message).replace(/\r?\n/g, "<br>");
 
     // ── Admin notification ───────────────────────────────────────────────────
     const adminHtml = `
