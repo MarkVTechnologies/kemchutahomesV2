@@ -13,9 +13,9 @@
 #   1. download that commit's tarball from GitHub and take its server/ folder
 #   2. back up the current app (code only — never .env, node_modules, tmp)
 #   3. copy the new code over the app (nothing is deleted, .env untouched)
-#   4. `npm install --omit=dev` only if package-lock.json changed
+#   4. `npm install --omit=dev` only if package.json dependencies changed
 #   5. restart the app (tmp/restart.txt + cloudlinux-selector if present)
-#   6. poll /healthz until it reports ok with a fresh uptime
+#   6. poll /healthz until it reports ok and this commit as its revision
 #   7. on failure: restore the backup, restart again, and remember the bad
 #      commit so cron doesn't retry it every 5 minutes
 #
@@ -68,12 +68,22 @@ main() {
   gh_api() { curl -fsSL --max-time 60 ${AUTH[@]+"${AUTH[@]}"} -H "X-GitHub-Api-Version: 2022-11-28" "$@"; }
 
   health_json() { curl -fsS --max-time 15 "$HEALTH_URL" 2>/dev/null; }
-  # Prints the uptime if /healthz says ok, nothing otherwise.
+  # Prints "<uptime> <revision|->" if /healthz says ok, nothing otherwise.
   health_uptime() {
     health_json | "$NODE_BIN/node" -e '
       let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
-        try{const j=JSON.parse(s);if(j.status==="ok")console.log(Math.floor(j.uptime))}catch{}
+        try{const j=JSON.parse(s);if(j.status==="ok")console.log(Math.floor(j.uptime)+" "+(j.revision||"-"))}catch{}
       })' 2>/dev/null
+  }
+  # Reinstall only when the dependency list in package.json changes. The
+  # lockfile isn't compared: the panel's "Run NPM Install" rewrites it on the
+  # host, so it differs from git even when nothing needs installing.
+  deps_sig() {
+    "$NODE_BIN/node" -e '
+      try{const p=require(process.argv[1]);const o={};
+        for(const k of ["dependencies","optionalDependencies","overrides"])
+          if(p[k])o[k]=Object.fromEntries(Object.entries(p[k]).sort());
+        console.log(JSON.stringify(o))}catch{console.log("unreadable")}' "$1" 2>/dev/null
   }
 
   # ── --check: report on the environment, change nothing ───────────────────
@@ -88,7 +98,7 @@ main() {
     local head; head=$(gh_api -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>&1) \
       && echo "GitHub      $REPO@$BRANCH = $head" || { echo "  !! cannot read $REPO@$BRANCH from GitHub: $head"; ok=0; }
     echo "Live        $(cat "$STATE_DIR/deployed-sha" 2>/dev/null || echo '(never deployed by this script)')"
-    local up; up=$(health_uptime); [ -n "$up" ] && echo "Health      ok (uptime ${up}s)" || { echo "  !! $HEALTH_URL not ok"; ok=0; }
+    local up; up=$(health_uptime); [ -n "$up" ] && echo "Health      ok (uptime/revision: $up)" || { echo "  !! $HEALTH_URL not ok"; ok=0; }
     [ "$ok" = 1 ] && echo "CHECK PASSED" || echo "CHECK FAILED"
     [ "$ok" = 1 ]; return
   fi
@@ -138,15 +148,22 @@ main() {
     --exclude=./tmp --exclude='*.log' . || { log "ERROR backup failed; nothing changed"; return 1; }
   ls -1t "$STATE_DIR"/backups/*.tgz 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -f
 
-  local OLD_LOCK_HASH NEW_LOCK_HASH
-  OLD_LOCK_HASH=$(sha256sum "$APP_DIR/package-lock.json" 2>/dev/null | cut -d' ' -f1)
-  NEW_LOCK_HASH=$(sha256sum "$NEW/package-lock.json" 2>/dev/null | cut -d' ' -f1)
+  local OLD_DEPS NEW_DEPS
+  OLD_DEPS=$(deps_sig "$APP_DIR/package.json")
+  NEW_DEPS=$(deps_sig "$NEW/package.json")
 
   local UPTIME_BEFORE; UPTIME_BEFORE=$(health_uptime)
 
-  install_deps() {
+  npm_install() {
     ( cd "$APP_DIR" && PATH="$NODE_BIN:$PATH" "$NODE_BIN/npm" install --omit=dev \
-        --no-audit --no-fund --loglevel=error ) >>"$LOG" 2>&1
+        --no-audit --no-fund --no-update-notifier --loglevel=error ) >>"$LOG" 2>&1
+  }
+  install_deps() {
+    npm_install && return 0
+    # npm's "reading 'edgesOut'" crash comes from a stale hidden lockfile.
+    log "npm install failed; retrying without node_modules/.package-lock.json"
+    rm -f "$APP_DIR/node_modules/.package-lock.json"
+    npm_install
   }
   restart_app() {
     mkdir -p "$APP_DIR/tmp" && touch "$APP_DIR/tmp/restart.txt"
@@ -155,13 +172,16 @@ main() {
         --app-root "${APP_DIR#"$HOME"/}" >>"$LOG" 2>&1 || true
     fi
   }
-  # Healthy = /healthz ok AND the process restarted (uptime went down).
+  # Healthy = /healthz ok AND it reports this commit — or, for code that
+  # predates the revision field, the process restarted (uptime went down).
   wait_healthy() {
-    local i up
-    for i in $(seq 1 18); do
+    local i h up rev before="${UPTIME_BEFORE%% *}"
+    for i in $(seq 1 36); do
       sleep 5
-      up=$(health_uptime)
-      if [ -n "$up" ] && { [ -z "$UPTIME_BEFORE" ] || [ "$up" -lt "$UPTIME_BEFORE" ]; }; then
+      h=$(health_uptime); [ -z "$h" ] && continue
+      up="${h%% *}"; rev="${h##* }"
+      [ "$rev" = "$TARGET" ] && return 0
+      if [ "$rev" = "-" ] && { [ -z "$before" ] || [ "$up" -lt "$before" ]; }; then
         return 0; fi
     done
     return 1
@@ -170,26 +190,27 @@ main() {
   # ── apply ──────────────────────────────────────────────────────────────────
   cp -R "$NEW"/. "$APP_DIR"/ || { log "ERROR copy failed"; rollback; return 1; }
   echo "$TARGET" > "$APP_DIR/REVISION"   # reported by /healthz
-  if [ "$OLD_LOCK_HASH" != "$NEW_LOCK_HASH" ] || [ ! -e "$APP_DIR/node_modules" ]; then
-    log "package-lock changed — installing dependencies"
+  if [ "$OLD_DEPS" != "$NEW_DEPS" ] || [ ! -e "$APP_DIR/node_modules" ]; then
+    log "dependencies changed — installing"
     install_deps || { log "ERROR npm install failed"; rollback; return 1; }
   fi
   restart_app
   if wait_healthy; then
     echo "$TARGET" > "$STATE_DIR/deployed-sha"
     rm -f "$STATE_DIR/failed-sha"
-    log "DEPLOY ok ${TARGET:0:7} (uptime $(health_uptime)s)"
+    log "DEPLOY ok ${TARGET:0:7} (health: $(health_uptime))"
     return 0
   fi
-  log "ERROR /healthz not ok, or the app did not restart, within 90s"
+  log "ERROR /healthz didn't report this commit (or a restart) within 3 min"
   rollback
   return 1
 }
 
 rollback() {
   log "ROLLBACK to ${CURRENT:0:7} from $BACKUP"
+  rm -f "$APP_DIR/REVISION"   # the backup restores the previous one, if any
   tar -xzf "$BACKUP" -C "$APP_DIR" >>"$LOG" 2>&1
-  if [ "$OLD_LOCK_HASH" != "$NEW_LOCK_HASH" ]; then install_deps || true; fi
+  if [ "$OLD_DEPS" != "$NEW_DEPS" ]; then install_deps || true; fi
   UPTIME_BEFORE=$(health_uptime)
   restart_app
   if wait_healthy || [ -n "$(health_uptime)" ]; then log "ROLLBACK ok"; else log "ROLLBACK done but /healthz still failing — check the app in the panel"; fi
