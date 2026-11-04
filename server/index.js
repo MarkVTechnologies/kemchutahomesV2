@@ -28,6 +28,7 @@ import commissionRoutes from "./routes/commission.routes.js";
 import bankAccountRoutes from "./routes/Bankaccount.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import knowledgeBaseRoutes from "./routes/knowledgeBase.routes.js";
+import { readFileSync } from "node:fs";
 import authRoutes from "./routes/auth.routes.js";
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -113,12 +114,22 @@ app.use((req, res, next) => {
 });
 
 // ── Health check ──────────────────────────────────────────────────────────────
+// REVISION is written by scripts/deploy/deploy.sh, so /healthz shows which
+// commit is live (absent on hand-uploaded deploys).
+const REVISION = (() => {
+  try {
+    return readFileSync(new URL("./REVISION", import.meta.url), "utf8").trim();
+  } catch {
+    return undefined;
+  }
+})();
 app.get("/healthz", (req, res) => {
   const mongoUp = mongoose.connection.readyState === 1;
   res.status(mongoUp ? 200 : 503).json({
     status: mongoUp ? "ok" : "degraded",
     mongo: mongoUp ? "connected" : "disconnected",
     uptime: process.uptime(),
+    revision: REVISION,
   });
 });
 

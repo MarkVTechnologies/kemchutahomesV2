@@ -205,3 +205,5 @@ dump.rdb
 .pnpm-store/
 jspm_packages/
 web_modules/
+# Written by server/scripts/deploy/deploy.sh on the host
+server/REVISION

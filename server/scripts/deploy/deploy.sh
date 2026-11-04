@@ -169,6 +169,7 @@ main() {
 
   # ── apply ──────────────────────────────────────────────────────────────────
   cp -R "$NEW"/. "$APP_DIR"/ || { log "ERROR copy failed"; rollback; return 1; }
+  echo "$TARGET" > "$APP_DIR/REVISION"   # reported by /healthz
   if [ "$OLD_LOCK_HASH" != "$NEW_LOCK_HASH" ] || [ ! -e "$APP_DIR/node_modules" ]; then
     log "package-lock changed — installing dependencies"
     install_deps || { log "ERROR npm install failed"; rollback; return 1; }
