@@ -129,7 +129,7 @@ app.get("/healthz", (req, res) => {
     status: mongoUp ? "ok" : "degraded",
     mongo: mongoUp ? "connected" : "disconnected",
     uptime: process.uptime(),
-    revision: REVISION,
+    revision: REVISION ?? null,
   });
 });
 
