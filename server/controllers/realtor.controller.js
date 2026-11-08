@@ -69,6 +69,7 @@ async function respondToExistingSignup(existing, password, res) {
     }
     await recordFailedLogin(existing);
   }
+  console.warn("[signup] rejected: email already registered");
   return res.status(400).json(emailTakenBody());
 }
 
@@ -101,6 +102,7 @@ export const signup = async (req, res) => {
     if (ref?.trim()) {
       recruiter = await findRecruiter(ref.trim());
       if (!recruiter) {
+        console.warn("[signup] rejected: invalid referral code");
         const message = "Invalid referral code. Check the code or leave it blank.";
         return res.status(400).json({ message, errors: [{ path: "ref", message }] });
       }

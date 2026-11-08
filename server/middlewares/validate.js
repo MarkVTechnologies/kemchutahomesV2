@@ -44,6 +44,12 @@ export const validate =
     const result = schema.safeParse(req[source]);
 
     if (!result.success) {
+      // Field names only: never log the submitted values.
+      console.warn(
+        `[validation] ${req.method} ${req.originalUrl?.split("?")[0]} rejected: ${result.error.issues
+          .map((i) => i.path.join("."))
+          .join(", ")}`,
+      );
       return res.status(400).json(validationFailure(result.error.issues));
     }
 

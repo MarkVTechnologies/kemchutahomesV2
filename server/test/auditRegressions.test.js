@@ -139,6 +139,26 @@ describe("realtor birth date formats (the registration 400)", () => {
     expect(iso("04/05/1990")).toBe("1990-05-04");
   });
 
+  it("reads two-digit years without guessing month-first", () => {
+    expect(iso("93-02-20")).toBe("1993-02-20");
+    expect(iso("20-02-93")).toBe("1993-02-20");
+    expect(iso("25/12/90")).toBe("1990-12-25");
+    expect(iso("05-06-93")).toBe("1993-06-05");
+    expect(iso("12/05/05")).toBe("2005-05-12");
+  });
+
+  it("accepts the other ways people type a date", () => {
+    expect(iso("25121990")).toBe("1990-12-25");
+    expect(iso("19901225")).toBe("1990-12-25");
+    expect(iso("251290")).toBe("1990-12-25");
+    expect(iso("25th December 1990")).toBe("1990-12-25");
+    expect(iso("25th Dec, 1990")).toBe("1990-12-25");
+    expect(iso("December 25, 1990")).toBe("1990-12-25");
+    expect(iso("25 / 12 / 1990")).toBe("1990-12-25");
+    expect(iso("25,12,1990")).toBe("1990-12-25");
+    expect(iso("1990-25-12")).toBe("1990-12-25");
+  });
+
   it("rejects impossible, future and unreadable dates with a clear message", () => {
     expect(parse("31/02/1990").success).toBe(false);
     expect(parse("2999-01-01").error.issues[0].message).toMatch(/future/);
