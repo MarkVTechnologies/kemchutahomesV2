@@ -10,9 +10,16 @@ import {
   resetPassword,
   checkEmailExists,
   getClientInspections,
+  showVerifyEmailPage,
+  verifyEmail,
+  resendVerification,
 } from "../controllers/client.controller.js";
 import { protectClient } from "../middlewares/authMiddleware.js";
-import { authLimiter } from "../middlewares/rateLimiters.js";
+import {
+  authLimiter,
+  contactLimiter,
+  publicFormLimiter,
+} from "../middlewares/rateLimiters.js";
 import { validate } from "../middlewares/validate.js";
 import {
   registerClientSchema,
@@ -27,6 +34,14 @@ import {
 const router = express.Router();
 
 // ── Public ─────────────────────────────────────────────────────────────────
+router.get("/verify-email", publicFormLimiter, showVerifyEmailPage);
+router.post("/verify-email", publicFormLimiter, verifyEmail);
+router.post(
+  "/me/resend-verification",
+  contactLimiter,
+  protectClient,
+  resendVerification,
+);
 router.post(
   "/register",
   authLimiter,

@@ -18,7 +18,7 @@ import {
 } from "../utils/commissionCalculator.js";
 import { getActiveBankAccounts } from "./Bankaccount.controller.js";
 import { parsePagination } from "../utils/pagination.js";
-import { userHasPermission } from "../middlewares/authMiddleware.js";
+import { hasVerifiedEmail, userHasPermission } from "../middlewares/authMiddleware.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const FRONTEND = () =>
@@ -461,6 +461,7 @@ export const getSubscriptionById = async (req, res) => {
 
 export const getMySubscriptions = async (req, res) => {
   try {
+    if (!hasVerifiedEmail(req.user)) return res.json([]);
     const subs = await Subscription.find({ email: req.user.email })
       .sort({ createdAt: -1 })
       .lean();
@@ -482,6 +483,8 @@ export const getMySubscriptions = async (req, res) => {
 export const getMySubscriptionById = async (req, res) => {
   if (rejectedInvalidId(req, res)) return;
   try {
+    if (!hasVerifiedEmail(req.user))
+      return res.status(404).json({ message: "Subscription not found." });
     const sub = await Subscription.findOne({
       _id: req.params.id,
       email: req.user.email,
@@ -1211,7 +1214,8 @@ export const downloadDocument = async (req, res) => {
     // subscription IDs. Admins are unaffected: this only gates role "client".
     if (
       req.user?.role === "client" &&
-      sub.email?.toLowerCase() !== req.user.email?.toLowerCase()
+      (!hasVerifiedEmail(req.user) ||
+        sub.email?.toLowerCase() !== req.user.email?.toLowerCase())
     ) {
       return res.status(403).json({ message: "Access denied." });
     }

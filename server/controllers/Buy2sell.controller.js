@@ -18,7 +18,7 @@ import { sendEmail, sendSMS } from "../utils/notifications.js";
 import { getActiveBankAccounts } from "./Bankaccount.controller.js";
 import { calculateBuy2SellCommissions } from "../utils/commissionCalculator.js";
 import { parsePagination } from "../utils/pagination.js";
-import { userHasPermission } from "../middlewares/authMiddleware.js";
+import { hasVerifiedEmail, userHasPermission } from "../middlewares/authMiddleware.js";
 
 // ── :id guard ────────────────────────────────────────────────────────────────
 // Mirrors estate.controller.js's rejectedInvalidId — without it, a malformed
@@ -498,6 +498,8 @@ export const getLeadById = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getMyInvestments = async (req, res) => {
   try {
+    // clientId is also linked from the email alone, so it proves nothing here.
+    if (!hasVerifiedEmail(req.user)) return res.json([]);
     // Match by email OR clientId — covers investments made before account creation
     const query = {
       $or: [{ email: req.user.email }, { clientId: req.user.id }],
@@ -850,8 +852,9 @@ export const downloadDocument = async (req, res) => {
     // getMyInvestments' own definition: by email or by linked clientId.
     if (
       req.user?.role === "client" &&
-      lead.email?.toLowerCase() !== req.user.email?.toLowerCase() &&
-      String(lead.clientId || "") !== String(req.user.id || "")
+      (!hasVerifiedEmail(req.user) ||
+        (lead.email?.toLowerCase() !== req.user.email?.toLowerCase() &&
+          String(lead.clientId || "") !== String(req.user.id || "")))
     ) {
       return res.status(403).json({ message: "Access denied." });
     }

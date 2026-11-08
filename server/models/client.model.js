@@ -20,6 +20,15 @@ const clientSchema = new mongoose.Schema(
     resetPasswordToken: { type: String },
     resetPasswordExpiry: { type: Date },
 
+    // ── Email verification ──────────────────────────────────────────────────
+    // Deliberately no default: accounts from before verification existed have
+    // no value and count as verified. Only new signups are stored as false.
+    emailVerified: { type: Boolean },
+    emailVerifyToken: { type: String },
+    emailVerifyExpiry: { type: Date },
+    // Login tokens issued before this time are rejected.
+    sessionsValidAfter: { type: Date },
+
     // ── Profile ─────────────────────────────────────────────────────────────
     avatar: {
       type: String,

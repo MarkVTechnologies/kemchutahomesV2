@@ -107,11 +107,18 @@ export const protectClient = async (req, res, next) => {
     }
 
     const client = await Client.findById(decoded.id).select(
-      "_id email role firstName lastName isActive",
+      "_id email role firstName lastName isActive emailVerified sessionsValidAfter",
     );
 
     if (!client) {
       return res.status(401).json({ message: "Client account not found." });
+    }
+
+    if (
+      client.sessionsValidAfter &&
+      decoded.iat * 1000 < client.sessionsValidAfter.getTime()
+    ) {
+      return res.status(401).json({ message: "Invalid or expired token." });
     }
 
     if (!client.isActive) {
@@ -127,6 +134,7 @@ export const protectClient = async (req, res, next) => {
       role: client.role,
       firstName: client.firstName,
       lastName: client.lastName,
+      emailVerified: client.emailVerified,
     };
 
     next();
@@ -135,6 +143,13 @@ export const protectClient = async (req, res, next) => {
     return res.status(401).json({ message: "Invalid or expired token." });
   }
 };
+
+/**
+ * Subscriptions, investments and inspections are matched to a client by email,
+ * so an account must prove it owns the address before it can see them. Only an
+ * explicit false is unverified; older accounts have no value.
+ */
+export const hasVerifiedEmail = (user) => user?.emailVerified !== false;
 
 /**
  * Admin-only guard — accepts any admin-family role ("admin" or
