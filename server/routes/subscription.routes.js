@@ -20,6 +20,7 @@ import {
   protectClient,
   hasPermission,
 } from "../middlewares/authMiddleware.js";
+import { publicFormLimiter } from "../middlewares/rateLimiters.js";
 import { validate } from "../middlewares/validate.js";
 import {
   createSubscriptionSchema,
@@ -69,7 +70,7 @@ const protectAdminOrClient = (req, res, next) => {
 };
 
 // ── Public
-router.post("/", validate(createSubscriptionSchema), createSubscription);
+router.post("/", publicFormLimiter, validate(createSubscriptionSchema), createSubscription);
 
 // ── Shared (admin OR client)
 router.get("/:id/documents/:docType", protectAdminOrClient, downloadDocument);

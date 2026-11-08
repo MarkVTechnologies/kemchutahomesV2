@@ -60,6 +60,7 @@ export const estateQuerySchema = z.object({
   purpose: z.string().max(50).optional(),
   search: z.string().max(100).optional(),
   page: z.coerce.number().int().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
+  // The web sitemap and estate static params ask for 500-1000 at once.
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
   active: z.string().max(10).optional(),
 });

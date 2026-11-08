@@ -10,6 +10,7 @@
  *   4. 07:00 daily — Auto-mature Buy2Sell investments (maturityDate has passed)
  */
 
+import { escapeHtml } from "./escapeHtml.js";
 import cron from "node-cron";
 import Inspection from "../models/inspection.model.js";
 import { Buy2SellLead } from "../models/Buy2sell.model.js";
@@ -96,8 +97,8 @@ export const jobs = {
                 <h1 style="color:#fff;margin:0;font-size:20px;font-weight:900;">How Was Your Visit?</h1>
               </div>
               <p style="color:#374151;font-size:15px;line-height:1.75;">
-                Dear ${firstName},<br><br>
-                We hope you enjoyed your site inspection at <strong>${estateName}</strong>.
+                Dear ${escapeHtml(firstName)},<br><br>
+                We hope you enjoyed your site inspection at <strong>${escapeHtml(estateName)}</strong>.
                 We would love to hear your thoughts and help you take the next step toward land ownership.<br><br>
                 Our team is available to answer any questions and guide you through the subscription process.
               </p>
@@ -164,7 +165,7 @@ export const jobs = {
             html: emailWrap(`
             <h2 style="color:#059669;font-size:22px;font-weight:900;margin:0 0 8px;">Your Investment Has Matured! 🎊</h2>
             <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-              Dear <strong>${inv.fullName}</strong>, congratulations!
+              Dear <strong>${escapeHtml(inv.fullName)}</strong>, congratulations!
               Your Buy2Sell investment has reached its maturity date of <strong>${fmtDate(inv.maturityDate)}</strong>.
             </p>
             <div style="background:#f9f6ff;border-radius:10px;padding:18px 20px;margin:20px 0;border-left:4px solid #700CEB;">
@@ -203,7 +204,7 @@ export const jobs = {
             </p>
             <div style="background:#f9f6ff;border-radius:10px;padding:18px 20px;margin:20px 0;border-left:4px solid #700CEB;">
               <p style="margin:5px 0;font-size:13px;color:#374151;"><strong>Reference:</strong> ${inv.referenceNumber}</p>
-              <p style="margin:5px 0;font-size:13px;color:#374151;"><strong>Investor:</strong> ${inv.fullName}</p>
+              <p style="margin:5px 0;font-size:13px;color:#374151;"><strong>Investor:</strong> ${escapeHtml(inv.fullName)}</p>
               <p style="margin:5px 0;font-size:13px;color:#374151;"><strong>Email:</strong> ${inv.email}</p>
               <p style="margin:5px 0;font-size:13px;color:#374151;"><strong>Phone:</strong> ${inv.phone}</p>
               <p style="margin:5px 0;font-size:13px;color:#374151;"><strong>Duration:</strong> ${inv.duration}</p>

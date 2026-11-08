@@ -17,6 +17,8 @@ import {
   clawbackCommissions,
 } from "../utils/commissionCalculator.js";
 import { getActiveBankAccounts } from "./Bankaccount.controller.js";
+import { parsePagination } from "../utils/pagination.js";
+import { userHasPermission } from "../middlewares/authMiddleware.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const FRONTEND = () =>
@@ -116,8 +118,10 @@ function buildInstalmentSchedule(totalAmount, months, startDate = new Date()) {
 }
 
 // ── Status after Nth instalment confirmed ─────────────────────────────────────
+// STATUSES stops at inst_6_paid, but split payments can exceed six confirmed
+// payments; inst_7_paid would fail validation and block the confirmation.
 function instalmentStatus(n) {
-  return `inst_${n}_paid`;
+  return `inst_${Math.min(n, 6)}_paid`;
 }
 
 // ── Email base wrapper ────────────────────────────────────────────────────────
@@ -145,7 +149,7 @@ const btn = (text, url) =>
 
 const infoBox = (rows) =>
   `<div style="background:#f9f6ff;border-radius:10px;padding:18px 20px;margin:20px 0;border-left:4px solid #700CEB;">
-    ${rows.map(([l, v]) => `<p style="margin:5px 0;font-size:13px;color:#374151;"><strong>${l}:</strong> ${v}</p>`).join("")}
+    ${rows.map(([l, v]) => `<p style="margin:5px 0;font-size:13px;color:#374151;"><strong>${l}:</strong> ${escapeHtml(v)}</p>`).join("")}
   </div>`;
 
 // bankBox — accepts live accounts array fetched from DB
@@ -272,10 +276,10 @@ export const createSubscription = async (req, res) => {
             },
           ],
           html: emailWrap(`
-            <h2 style="color:#0f0a1e;font-size:22px;font-weight:900;margin:0 0 8px;">Congratulations, ${sub.firstName}! 🎉</h2>
+            <h2 style="color:#0f0a1e;font-size:22px;font-weight:900;margin:0 0 8px;">Congratulations, ${escapeHtml(sub.firstName)}! 🎉</h2>
             <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
               You have taken a <strong>bold step towards land ownership</strong> by subscribing to
-              <strong>${sub.estateName}</strong>. This is a milestone worth celebrating!
+              <strong>${escapeHtml(sub.estateName)}</strong>. This is a milestone worth celebrating!
             </p>
             ${infoBox([
               ["Reference", ref],
@@ -392,7 +396,8 @@ export const createSubscription = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getAllSubscriptions = async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, search, plotType } = req.query;
+    const { status, search, plotType } = req.query;
+    const { page, limit, skip } = parsePagination(req.query);
     const filter = {};
     if (status) filter.status = status;
     if (plotType) filter.plotType = plotType;
@@ -406,20 +411,19 @@ export const getAllSubscriptions = async (req, res) => {
         { referenceNumber: { $regex: safeSearch, $options: "i" } },
       ];
     }
-    const skip = (Number(page) - 1) * Number(limit);
     const [subscriptions, total] = await Promise.all([
       Subscription.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(Number(limit))
+        .limit(limit)
         .lean(),
       Subscription.countDocuments(filter),
     ]);
     res.json({
       subscriptions,
       total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
+      page,
+      pages: Math.ceil(total / limit),
     });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch subscriptions." });
@@ -534,6 +538,17 @@ export const addNote = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const ADMIN_SETTABLE_STATUSES = ["pending", "confirmed", "rejected"];
 
+const sendMissingOrWrongState = async (
+  res,
+  id,
+  message = "This subscription already has payments or an allocation, so its status can't be changed here.",
+) => {
+  const exists = await Subscription.exists({ _id: id });
+  return exists
+    ? res.status(400).json({ message })
+    : res.status(404).json({ message: "Subscription not found." });
+};
+
 export const updateSubscriptionStatus = async (req, res) => {
   if (rejectedInvalidId(req, res)) return;
   try {
@@ -552,11 +567,16 @@ export const updateSubscriptionStatus = async (req, res) => {
       update.confirmedAt = new Date();
     }
 
-    const sub = await Subscription.findByIdAndUpdate(req.params.id, update, {
-      new: true,
-    });
-    if (!sub)
-      return res.status(404).json({ message: "Subscription not found." });
+    // Going back to pending/confirmed would erase real payment progress.
+    const sub = await Subscription.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(status !== "rejected" && { status: { $in: ADMIN_SETTABLE_STATUSES } }),
+      },
+      update,
+      { new: true },
+    );
+    if (!sub) return sendMissingOrWrongState(res, req.params.id);
 
     const ref =
       sub.referenceNumber || sub._id.toString().slice(-8).toUpperCase();
@@ -586,8 +606,8 @@ export const updateSubscriptionStatus = async (req, res) => {
               html: emailWrap(`
                 <h2 style="color:#059669;font-size:22px;font-weight:900;margin:0 0 8px;">Subscription Confirmed! ✅</h2>
                 <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-                  Dear <strong>${fullName}</strong>,<br><br>
-                  Congratulations! Your land subscription for <strong>${sub.estateName}</strong> has been confirmed.
+                  Dear <strong>${escapeHtml(fullName)}</strong>,<br><br>
+                  Congratulations! Your land subscription for <strong>${escapeHtml(sub.estateName)}</strong> has been confirmed.
                   Please proceed to making your payment to secure your plot.
                 </p>
                 ${infoBox([
@@ -628,8 +648,8 @@ export const updateSubscriptionStatus = async (req, res) => {
             html: emailWrap(`
               <h2 style="color:#dc2626;font-size:20px;font-weight:900;margin:0 0 8px;">Subscription Not Approved</h2>
               <p style="color:#374151;font-size:15px;line-height:1.75;">
-                Dear <strong>${fullName}</strong>,<br><br>
-                We regret to inform you that your subscription for <strong>${sub.estateName}</strong> could not be approved at this time.
+                Dear <strong>${escapeHtml(fullName)}</strong>,<br><br>
+                We regret to inform you that your subscription for <strong>${escapeHtml(sub.estateName)}</strong> could not be approved at this time.
                 Please contact us for more information.
               </p>
               ${btn("Contact Us", `${FRONTEND()}/contact`)}
@@ -662,8 +682,8 @@ export const confirmSubscription = async (req, res) => {
   if (rejectedInvalidId(req, res)) return;
   try {
     const banks = await getActiveBankAccounts();
-    const sub = await Subscription.findByIdAndUpdate(
-      req.params.id,
+    const sub = await Subscription.findOneAndUpdate(
+      { _id: req.params.id, status: { $in: ADMIN_SETTABLE_STATUSES } },
       {
         status: "confirmed",
         confirmedByAdmin: req.user?.email || "admin",
@@ -671,8 +691,7 @@ export const confirmSubscription = async (req, res) => {
       },
       { new: true },
     );
-    if (!sub)
-      return res.status(404).json({ message: "Subscription not found." });
+    if (!sub) return sendMissingOrWrongState(res, req.params.id);
 
     const ref =
       sub.referenceNumber || sub._id.toString().slice(-8).toUpperCase();
@@ -697,8 +716,8 @@ export const confirmSubscription = async (req, res) => {
           html: emailWrap(`
             <h2 style="color:#059669;font-size:22px;font-weight:900;margin:0 0 8px;">Congratulations! Your Purchase is Confirmed ✅</h2>
             <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-              Dear <strong>${sub.title} ${sub.firstName} ${sub.lastName}</strong>,<br><br>
-              We are pleased to confirm your land subscription for <strong>${sub.estateName}</strong>.
+              Dear <strong>${escapeHtml(sub.title)} ${escapeHtml(sub.firstName)} ${escapeHtml(sub.lastName)}</strong>,<br><br>
+              We are pleased to confirm your land subscription for <strong>${escapeHtml(sub.estateName)}</strong>.
               Please proceed to making your payment to secure your plot.
             </p>
             ${infoBox([
@@ -748,8 +767,8 @@ export const recordPayment = async (req, res) => {
     if (!amount || amount <= 0)
       return res.status(400).json({ message: "Valid amount required" });
 
-    const sub = await Subscription.findByIdAndUpdate(
-      req.params.id,
+    const sub = await Subscription.findOneAndUpdate(
+      { _id: req.params.id, status: { $ne: "rejected" } },
       {
         $push: {
           payments: {
@@ -766,7 +785,11 @@ export const recordPayment = async (req, res) => {
       { new: true },
     );
     if (!sub)
-      return res.status(404).json({ message: "Subscription not found." });
+      return sendMissingOrWrongState(
+        res,
+        req.params.id,
+        "Payments can't be recorded on a rejected subscription.",
+      );
 
     res.json({
       message:
@@ -785,16 +808,24 @@ export const recordPayment = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const confirmPayment = async (req, res) => {
   if (rejectedInvalidId(req, res)) return;
+  if (!isValidObjectId(req.params.paymentId))
+    return res.status(400).json({ message: "Invalid payment ID" });
   try {
     const sub = await Subscription.findById(req.params.id);
     if (!sub)
       return res.status(404).json({ message: "Subscription not found." });
+    if (sub.status === "rejected")
+      return res
+        .status(400)
+        .json({ message: "Payments can't be confirmed on a rejected subscription." });
 
     const payment = sub.payments.id(req.params.paymentId);
     if (!payment)
       return res.status(404).json({ message: "Payment not found." });
     if (payment.confirmed)
       return res.status(400).json({ message: "Already confirmed." });
+
+    const wasAllocated = sub.status === "allocated";
 
     // Confirm
     payment.confirmed = true;
@@ -846,14 +877,17 @@ export const confirmPayment = async (req, res) => {
       }
     }
 
-    // Calculate commissions on first ever confirmed payment
+    // A late payment must not undo an allocation that already happened.
+    if (wasAllocated) sub.status = "allocated";
+
+    await sub.save();
+
+    // After the save, so a failed confirmation can't leave commissions behind.
     if (confirmedN === 1 && sub.realtorId) {
       calculateCommissions(sub._id, sub.realtorId).catch((e) =>
         console.error("Commission calc error:", e.message),
       );
     }
-
-    await sub.save();
 
     // ── Next instalment info ───────────────────────────────────────────────
     const nextInst = sub.instalmentSchedule?.find((s) => !s.isPaid);
@@ -926,11 +960,11 @@ export const confirmPayment = async (req, res) => {
               ${isComplete ? "🎉 Payment Complete!" : "✅ Payment Confirmed"}
             </h2>
             <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-              Dear <strong>${fullName}</strong>,<br><br>
+              Dear <strong>${escapeHtml(fullName)}</strong>,<br><br>
               ${
                 isComplete
-                  ? `Congratulations! You have completed all payments for your land at <strong>${sub.estateName}</strong>. Your plot allocation is being processed.`
-                  : `We have confirmed your payment of <strong>${fmtNGN(payment.amount)}</strong> for <strong>${sub.estateName}</strong>.`
+                  ? `Congratulations! You have completed all payments for your land at <strong>${escapeHtml(sub.estateName)}</strong>. Your plot allocation is being processed.`
+                  : `We have confirmed your payment of <strong>${fmtNGN(payment.amount)}</strong> for <strong>${escapeHtml(sub.estateName)}</strong>.`
               }
             </p>
             ${infoBox([
@@ -1019,6 +1053,12 @@ export const confirmPayment = async (req, res) => {
       subscription: sub,
     });
   } catch (err) {
+    // Two admins confirming at once: Mongoose's version check stops the second.
+    if (err.name === "VersionError") {
+      return res.status(409).json({
+        message: "This subscription was just updated by someone else. Refresh and try again.",
+      });
+    }
     console.error("confirmPayment:", err);
     res.status(500).json({ message: "Failed to confirm payment." });
   }
@@ -1034,8 +1074,13 @@ export const allocatePlot = async (req, res) => {
     if (!plotNumber?.trim())
       return res.status(400).json({ message: "Plot number is required" });
 
-    const sub = await Subscription.findByIdAndUpdate(
-      req.params.id,
+    // Same statuses the dashboard offers the Allocate action on. Allocation
+    // issues a deed, so an unpaid subscription must never reach it.
+    const sub = await Subscription.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: { $in: ["completed", "outright_paid", "allocated"] },
+      },
       {
         plotNumber,
         plotDescription: plotDescription?.trim() || "",
@@ -1046,7 +1091,11 @@ export const allocatePlot = async (req, res) => {
       { new: true },
     );
     if (!sub)
-      return res.status(404).json({ message: "Subscription not found." });
+      return sendMissingOrWrongState(
+        res,
+        req.params.id,
+        "A plot can only be allocated once the subscription is fully paid.",
+      );
 
     const ref =
       sub.referenceNumber || sub._id.toString().slice(-8).toUpperCase();
@@ -1081,9 +1130,9 @@ export const allocatePlot = async (req, res) => {
           html: emailWrap(`
             <h2 style="color:#700CEB;font-size:22px;font-weight:900;margin:0 0 8px;">Your Plot Has Been Allocated! 🏡</h2>
             <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-              Dear <strong>${sub.title} ${sub.firstName} ${sub.lastName}</strong>,<br><br>
+              Dear <strong>${escapeHtml(sub.title)} ${escapeHtml(sub.firstName)} ${escapeHtml(sub.lastName)}</strong>,<br><br>
               Congratulations! After completing your land purchase journey with Kemchuta Homes,
-              we are delighted to officially allocate your plot at <strong>${sub.estateName}</strong>.
+              we are delighted to officially allocate your plot at <strong>${escapeHtml(sub.estateName)}</strong>.
             </p>
             ${infoBox([
               ["Reference", ref],
@@ -1166,6 +1215,14 @@ export const downloadDocument = async (req, res) => {
     ) {
       return res.status(403).json({ message: "Access denied." });
     }
+    if (
+      req.user?.role !== "client" &&
+      !userHasPermission(req.user, "manage_subscriptions")
+    ) {
+      return res
+        .status(403)
+        .json({ message: "You do not have permission to access this section." });
+    }
 
     const { docType } = req.params;
     const map = {
@@ -1191,6 +1248,16 @@ export const downloadDocument = async (req, res) => {
     const gen = map[docType];
     if (!gen)
       return res.status(400).json({ message: "Invalid document type." });
+
+    // Clients only get what has been issued to them: otherwise anyone could
+    // download a contract or Deed of Assignment for an unpaid subscription.
+    if (
+      req.user?.role === "client" &&
+      !["acknowledgement", "invoice"].includes(docType) &&
+      !sub.documents?.some((d) => d.type === docType)
+    ) {
+      return res.status(404).json({ message: "Document not available." });
+    }
 
     const buf = await gen();
     if (!buf)
@@ -1231,6 +1298,7 @@ export async function sendPaymentReminders() {
           "inst_3_paid",
           "inst_4_paid",
           "inst_5_paid",
+          "inst_6_paid", // a 6-month plan has 7 instalments, deposit included
           "partial_paid",
         ],
       },
@@ -1284,13 +1352,13 @@ export async function sendPaymentReminders() {
                 ${isOverdue ? "⚠ Payment Overdue" : "📅 Payment Reminder"}
               </h2>
               <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-                Dear <strong>${fullName}</strong>,<br><br>
+                Dear <strong>${escapeHtml(fullName)}</strong>,<br><br>
                 ${
                   isOverdue
-                    ? `Your instalment payment for <strong>${sub.estateName}</strong> was due on <strong>${fmtDate(dueDate)}</strong> and is now overdue.`
+                    ? `Your instalment payment for <strong>${escapeHtml(sub.estateName)}</strong> was due on <strong>${fmtDate(dueDate)}</strong> and is now overdue.`
                     : noPaid
-                      ? `This is a reminder that your initial deposit for <strong>${sub.estateName}</strong> is due. Please make payment to secure your plot.`
-                      : `Your next instalment for <strong>${sub.estateName}</strong> is due in <strong>${daysUntil} day${daysUntil !== 1 ? "s" : ""}</strong>.`
+                      ? `This is a reminder that your initial deposit for <strong>${escapeHtml(sub.estateName)}</strong> is due. Please make payment to secure your plot.`
+                      : `Your next instalment for <strong>${escapeHtml(sub.estateName)}</strong> is due in <strong>${daysUntil} day${daysUntil !== 1 ? "s" : ""}</strong>.`
                 }
               </p>
               ${infoBox([

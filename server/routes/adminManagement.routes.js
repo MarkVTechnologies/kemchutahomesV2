@@ -11,7 +11,7 @@ import {
 } from "../controllers/adminManagement.controller.js";
 import { protect, requireSuperAdmin } from "../middlewares/authMiddleware.js";
 import { authLimiter } from "../middlewares/rateLimiters.js";
-import { validate } from "../middlewares/validate.js";
+import { rejectInvalidIdParam, validate } from "../middlewares/validate.js";
 import {
   inviteAdminSchema,
   updateAdminSchema,
@@ -19,6 +19,8 @@ import {
 } from "../schemas/admin.schema.js";
 
 const router = express.Router();
+
+router.param("id", rejectInvalidIdParam("admin"));
 
 // Public — completes an invite, mirrors POST /api/admin/reset-password.
 router.post(

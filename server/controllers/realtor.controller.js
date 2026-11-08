@@ -1,3 +1,4 @@
+import { escapeHtml } from "../utils/escapeHtml.js";
 import Realtor from "../models/realtor.model.js";
 import { Commission } from "../models/Commission.model.js";
 import bcrypt from "bcryptjs";
@@ -33,6 +34,44 @@ const generateReferralCode = async () => {
 const FRONTEND = () =>
   process.env.FRONTEND_URL || "https://kemchutahomesltd.com";
 
+const emailTakenBody = () => {
+  const message =
+    "Email already registered. Please log in, or use Forgot Password if you can't remember your password.";
+  return { message, errors: [{ path: "email", message }] };
+};
+
+// Codes are stored lowercase ("kem00734"), but people type them from a message
+// or with auto-capitalisation on. Exact match first, then ignoring case.
+const findRecruiter = async (code) =>
+  (await Realtor.findOne({ referralCode: code })) ||
+  Realtor.findOne({
+    referralCode: { $regex: `^${escapeRegex(code)}$`, $options: "i" },
+  });
+
+// Earlier app builds created the account, then showed "Registration Failed",
+// and a request that outlives the app's timeout does the same. Those people
+// retry with the same details and would be stuck on a 400. If the password is
+// right they could log in anyway, so answer as a success and let the app's
+// normal signup-then-login continue. Wrong guesses count toward the same
+// lockout as login, so this can't be used to get around it.
+async function respondToExistingSignup(existing, password, res) {
+  if (!getLockoutStatus(existing).locked && existing.passwordHash) {
+    if (await bcrypt.compare(password, existing.passwordHash)) {
+      return res.status(200).json({
+        message: "Account already exists",
+        user: {
+          id: existing._id,
+          name: `${existing.firstName} ${existing.lastName}`,
+          referralCode: existing.referralCode,
+          referralLink: existing.referralLink,
+        },
+      });
+    }
+    await recordFailedLogin(existing);
+  }
+  return res.status(400).json(emailTakenBody());
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
    AUTH
 ──────────────────────────────────────────────────────────────────────────── */
@@ -55,36 +94,47 @@ export const signup = async (req, res) => {
       avatar,
     } = req.body;
 
-    if (await Realtor.findOne({ email })) {
-      return res.status(400).json({ message: "Email already registered" });
-    }
+    const existing = await Realtor.findOne({ email });
+    if (existing) return respondToExistingSignup(existing, password, res);
 
     let recruiter = null;
     if (ref?.trim()) {
-      recruiter = await Realtor.findOne({ referralCode: ref.trim() });
-      if (!recruiter)
-        return res.status(400).json({ message: "Invalid referral code" });
+      recruiter = await findRecruiter(ref.trim());
+      if (!recruiter) {
+        const message = "Invalid referral code. Check the code or leave it blank.";
+        return res.status(400).json({ message, errors: [{ path: "ref", message }] });
+      }
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const referralCode = await generateReferralCode();
 
-    const realtor = await Realtor.create({
-      firstName,
-      lastName,
-      email,
-      phone,
-      country: country || undefined,
-      state,
-      bank,
-      accountName,
-      accountNumber,
-      avatar: avatar || undefined,
-      passwordHash,
-      referralCode,
-      birthDate: new Date(birthDate),
-      recruitedBy: recruiter?._id || null,
-    });
+    // Codes come from a count plus two random digits, so concurrent signups
+    // can collide on the unique index. Same retry as subscription references.
+    let realtor;
+    let referralCode;
+    for (let attempt = 0; attempt < 3 && !realtor; attempt++) {
+      referralCode = await generateReferralCode();
+      try {
+        realtor = await Realtor.create({
+          firstName,
+          lastName,
+          email,
+          phone,
+          country: country || undefined,
+          state,
+          bank,
+          accountName,
+          accountNumber,
+          avatar: avatar || undefined,
+          passwordHash,
+          referralCode,
+          birthDate: new Date(birthDate),
+          recruitedBy: recruiter?._id || null,
+        });
+      } catch (err) {
+        if (!(err.code === 11000 && err.keyPattern?.referralCode) || attempt === 2) throw err;
+      }
+    }
 
     // ── Welcome email ─────────────────────────────────────────────────────
     const referralLink = `${FRONTEND()}/signup?ref=${referralCode}`;
@@ -97,7 +147,7 @@ export const signup = async (req, res) => {
           <span style="display:inline-block;background:rgba(255,255,255,0.2);color:#fff;font-size:11px;font-weight:700;padding:4px 14px;border-radius:20px;margin-top:10px;letter-spacing:1px;">REALTOR WELCOME</span>
         </div>
         <div style="padding:40px 36px;">
-          <h2 style="color:#0f0a1e;font-size:22px;font-weight:900;margin:0 0 12px;">Welcome, ${firstName}! 🎉</h2>
+          <h2 style="color:#0f0a1e;font-size:22px;font-weight:900;margin:0 0 12px;">Welcome, ${escapeHtml(firstName)}! 🎉</h2>
           <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 24px;">
             You have been successfully registered as a Kemchuta Homes realtor. You can now start earning commissions by referring clients to our estates.
           </p>
@@ -150,6 +200,10 @@ export const signup = async (req, res) => {
       },
     });
   } catch (err) {
+    // A double tap can get past the findOne above; the unique index catches it.
+    if (err.code === 11000 && err.keyPattern?.email) {
+      return res.status(400).json(emailTakenBody());
+    }
     console.error("SIGNUP ERROR:", err);
     return res.status(500).json({ message: "Signup failed" });
   }
@@ -423,7 +477,8 @@ export const changeMyPassword = async (req, res) => {
     }
 
     realtor.passwordHash = await bcrypt.hash(newPassword, 12);
-    await realtor.save();
+    // Older realtors have no birthDate; full validation would fail the save.
+    await realtor.save({ validateModifiedOnly: true });
 
     return res.json({ message: "Password changed successfully" });
   } catch (err) {
@@ -494,6 +549,7 @@ export const updateAvatar = async (req, res) => {
       { avatar: result.secure_url },
       { new: true },
     ).select("firstName lastName avatar referralCode email role");
+    if (!updated) return res.status(404).json({ message: "Realtor not found" });
 
     return res.json({
       message: "Avatar updated",
@@ -545,7 +601,7 @@ export const getRealtors = async (req, res) => {
 
     const total = await Realtor.countDocuments(filter);
     const realtors = await Realtor.find(filter)
-      .select("-passwordHash")
+      .select("-passwordHash -resetPasswordToken -resetPasswordExpiry")
       .sort("-createdAt")
       .skip((page - 1) * limit)
       .limit(limit)
@@ -608,7 +664,7 @@ export const getRealtorById = async (req, res) => {
   try {
     const realtor = await Realtor.findById(req.params.id)
       .populate("recruitedBy", "firstName lastName referralCode")
-      .select("-passwordHash");
+      .select("-passwordHash -resetPasswordToken -resetPasswordExpiry");
     if (!realtor) return res.status(404).json({ message: "Realtor not found" });
     res.json(realtor);
   } catch (err) {
@@ -622,10 +678,13 @@ export const updateRealtor = async (req, res) => {
     const updated = await Realtor.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
-    }).select("-passwordHash");
+    }).select("-passwordHash -resetPasswordToken -resetPasswordExpiry");
     if (!updated) return res.status(404).json({ message: "Realtor not found" });
     res.json({ message: "Updated successfully", realtor: updated });
   } catch (err) {
+    if (err.code === 11000 && err.keyPattern?.email) {
+      return res.status(400).json({ message: "That email is already in use by another realtor." });
+    }
     console.error("UPDATE REALTOR ERROR:", err);
     res.status(500).json({ message: "Update failed" });
   }

@@ -26,6 +26,7 @@ import { isValidObjectId, Types } from "mongoose";
 import { Commission, CommissionTier } from "../models/Commission.model.js";
 import { getTiers, clawbackCommissionById } from "../utils/commissionCalculator.js";
 import { escapeRegex } from "../utils/escapeRegex.js";
+import { parsePagination } from "../utils/pagination.js";
 import {
   notifyRealtorCommissionPaid,
   notifyRealtorCommissionClawedback,
@@ -123,17 +124,17 @@ export const getMyCommissions = async (req, res) => {
       return res.status(403).json({ message: "Realtor account required." });
     }
     const realtorId = req.user?._id || req.user?.id;
-    const { page = 1, limit = 20, status, sourceType } = req.query;
+    const { status, sourceType } = req.query;
+    const { page, limit, skip } = parsePagination(req.query);
     const filter = { realtorId };
     if (status) filter.status = status;
     if (sourceType === "subscription" || sourceType === "buy2sell") filter.sourceType = sourceType;
 
-    const skip = (Number(page) - 1) * Number(limit);
     const [commissions, total] = await Promise.all([
       Commission.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(Number(limit))
+        .limit(limit)
         .lean(),
       Commission.countDocuments(filter),
     ]);
@@ -169,8 +170,8 @@ export const getMyCommissions = async (req, res) => {
     res.json({
       commissions,
       total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
+      page,
+      pages: Math.ceil(total / limit),
       totals,
       levelTotals,
     });

@@ -178,11 +178,12 @@ export const requireSuperAdmin = (req, res, next) => {
  * specific key granted via the admin-management API (see
  * config/permissions.js for the catalog).
  */
+export const userHasPermission = (user, key) =>
+  user?.role === "superadmin" ||
+  (Array.isArray(user?.permissions) && user.permissions.includes(key));
+
 export const hasPermission = (key) => (req, res, next) => {
-  if (req.user.role === "superadmin") return next();
-  if (Array.isArray(req.user.permissions) && req.user.permissions.includes(key)) {
-    return next();
-  }
+  if (userHasPermission(req.user, key)) return next();
   return res
     .status(403)
     .json({ message: "You do not have permission to access this section." });

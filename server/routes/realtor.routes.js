@@ -23,7 +23,7 @@ import {
 import { uploadSingleImage } from "../middlewares/upload.middleware.js";
 import { protect, protectAdmin, hasPermission } from "../middlewares/authMiddleware.js";
 import { authLimiter } from "../middlewares/rateLimiters.js";
-import { validate } from "../middlewares/validate.js";
+import { rejectInvalidIdParam, validate } from "../middlewares/validate.js";
 import {
   realtorSignupSchema,
   realtorLoginSchema,
@@ -38,6 +38,8 @@ import {
 } from "../schemas/realtor.schema.js";
 
 const router = express.Router();
+
+router.param("id", rejectInvalidIdParam("realtor"));
 
 // ✅ Public routes
 router.post("/signup", authLimiter, validate(realtorSignupSchema), signup);

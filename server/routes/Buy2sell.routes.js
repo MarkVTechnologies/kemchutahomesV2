@@ -19,6 +19,7 @@ import {
   protectClient,
   hasPermission,
 } from "../middlewares/authMiddleware.js";
+import { publicFormLimiter } from "../middlewares/rateLimiters.js";
 import { validate } from "../middlewares/validate.js";
 import {
   updateROISettingsSchema,
@@ -63,7 +64,7 @@ const protectAdminOrClient = (req, res, next) => {
 
 // Public
 router.get("/roi", getROISettings);
-router.post("/leads", validate(submitBuy2SellLeadSchema), submitBuy2SellLead);
+router.post("/leads", publicFormLimiter, validate(submitBuy2SellLeadSchema), submitBuy2SellLead);
 
 // Shared
 router.get(

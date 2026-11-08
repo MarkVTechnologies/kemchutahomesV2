@@ -5,6 +5,7 @@ import {
   notifyInspectionStatusChanged,
 } from "../utils/notifications.js";
 import { escapeRegex } from "../utils/escapeRegex.js";
+import { parsePagination } from "../utils/pagination.js";
 
 // ── :id guard ────────────────────────────────────────────────────────────────
 // Mirrors estate.controller.js's rejectedInvalidId — without it, a malformed
@@ -94,7 +95,8 @@ export const bookInspection = async (req, res) => {
 // ── GET /api/inspections — Admin: get all ────────────────────────────────────
 export const getAllInspections = async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, search } = req.query;
+    const { status, search } = req.query;
+    const { page, limit, skip } = parsePagination(req.query);
     const filter = {};
     if (status) filter.status = status;
     if (search) {
@@ -106,20 +108,19 @@ export const getAllInspections = async (req, res) => {
         { email: { $regex: safeSearch, $options: "i" } },
       ];
     }
-    const skip = (Number(page) - 1) * Number(limit);
     const [inspections, total] = await Promise.all([
       Inspection.find(filter)
         .sort({ inspectionDate: 1 })
         .skip(skip)
-        .limit(Number(limit))
+        .limit(limit)
         .lean(),
       Inspection.countDocuments(filter),
     ]);
     res.json({
       inspections,
       total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
+      page,
+      pages: Math.ceil(total / limit),
     });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch inspections." });

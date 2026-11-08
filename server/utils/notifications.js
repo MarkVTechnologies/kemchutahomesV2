@@ -39,6 +39,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+import { escapeHtml } from "./escapeHtml.js";
 import { Resend } from "resend";
 
 // ── Lazy-init Resend client ──────────────────────────────────────────────────
@@ -248,7 +249,7 @@ const baseHtml = (badge, headlineHtml, bodyHtml) => `
 </div></div></body></html>`;
 
 const dataRows = (rows) =>
-  `<table class="data">${rows.map(([l, v]) => `<tr><td>${l}</td><td>${v || "—"}</td></tr>`).join("")}</table>`;
+  `<table class="data">${rows.map(([l, v]) => `<tr><td>${l}</td><td>${escapeHtml(v || "—")}</td></tr>`).join("")}</table>`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ── 1. INSPECTION BOOKED ─────────────────────────────────────────────────────
@@ -288,7 +289,7 @@ export async function notifyInspectionBooked(inspection) {
   const clientHtml = baseHtml(
     "INSPECTION RECEIVED",
     `<h2>Inspection Booking Received 🏡</h2>
-     <p>Hi ${firstName}, your inspection request has been received. Our team will contact you shortly to confirm.</p>`,
+     <p>Hi ${escapeHtml(firstName)}, your inspection request has been received. Our team will contact you shortly to confirm.</p>`,
     `${dataRows([
       ["Estate", estateName],
       ["Date", dateStr],
@@ -331,7 +332,7 @@ export async function notifyInspectionStatusChanged(inspection) {
     confirmed: {
       badge: "CONFIRMED",
       heading: "Your Inspection is Confirmed! ✅",
-      body: `Great news, ${firstName}! Your site visit for <strong>${estateName}</strong> on ${dateStr} is <strong>confirmed</strong>.`,
+      body: `Great news, ${escapeHtml(firstName)}! Your site visit for <strong>${escapeHtml(estateName)}</strong> on ${dateStr} is <strong>confirmed</strong>.`,
       notice: "Please arrive 10 minutes early and bring a valid ID.",
       subject: `✅ Inspection Confirmed — ${estateName}`,
       sms: `Hi ${firstName}, your ${estateName} inspection on ${dateShrt} is CONFIRMED. Arrive 10 mins early with a valid ID. - Kemchuta Homes`,
@@ -339,7 +340,7 @@ export async function notifyInspectionStatusChanged(inspection) {
     cancelled: {
       badge: "CANCELLED",
       heading: "Inspection Cancelled",
-      body: `Hi ${firstName}, your inspection for <strong>${estateName}</strong> on ${dateStr} has been cancelled. Please contact us to reschedule.`,
+      body: `Hi ${escapeHtml(firstName)}, your inspection for <strong>${escapeHtml(estateName)}</strong> on ${dateStr} has been cancelled. Please contact us to reschedule.`,
       notice: "Call us on +234 800 000 0001 to book a new date.",
       subject: `Inspection Cancelled — ${estateName}`,
       sms: `Hi ${firstName}, your ${estateName} inspection on ${dateShrt} has been cancelled. Call us to reschedule. - Kemchuta Homes`,
@@ -347,7 +348,7 @@ export async function notifyInspectionStatusChanged(inspection) {
     completed: {
       badge: "COMPLETED",
       heading: "Thank You for Visiting! 🙏",
-      body: `Hi ${firstName}, thank you for visiting <strong>${estateName}</strong>! We hope you loved what you saw. Ready to subscribe and own your plot?`,
+      body: `Hi ${escapeHtml(firstName)}, thank you for visiting <strong>${escapeHtml(estateName)}</strong>! We hope you loved what you saw. Ready to subscribe and own your plot?`,
       notice: "Our team is ready to walk you through flexible payment plans.",
       subject: `How Was Your Visit? — ${estateName}`,
       sms: `Hi ${firstName}, thanks for visiting ${estateName}! Ready to own a plot? Call us or visit kemchutahomesltd.com. Plots are going fast! - Kemchuta Homes`,
@@ -387,7 +388,7 @@ export async function sendInspectionReminder(inspection) {
   const html = baseHtml(
     "REMINDER",
     `<h2>Your Inspection is Tomorrow! 📅</h2>
-     <p>Hi ${firstName}, just a friendly reminder that your site visit for <strong>${estateName}</strong> is scheduled for tomorrow.</p>`,
+     <p>Hi ${escapeHtml(firstName)}, just a friendly reminder that your site visit for <strong>${escapeHtml(estateName)}</strong> is scheduled for tomorrow.</p>`,
     `${dataRows([
       ["Estate", estateName],
       ["Date", dateStr],
@@ -419,7 +420,7 @@ export async function sendPostInspectionFollowUp(inspection) {
   const html = baseHtml(
     "FOLLOW UP",
     `<h2>How Was Your Visit? 🏡</h2>
-     <p>Hi ${firstName}, we hope you enjoyed visiting <strong>${estateName}</strong>! We'd love to help you take the next step toward land ownership.</p>`,
+     <p>Hi ${escapeHtml(firstName)}, we hope you enjoyed visiting <strong>${escapeHtml(estateName)}</strong>! We'd love to help you take the next step toward land ownership.</p>`,
     `<p style="font-size:15px;color:#525252;">Our team is available to walk you through our flexible payment plans — outright or instalments.</p>
     <div class="btn-wrapper"><a href="${FRONTEND()}/developments" class="btn">View Payment Plans</a></div>`,
   );
@@ -471,7 +472,7 @@ export async function notifyUplineOfNewRecruit({
   const html = baseHtml(
     "NEW RECRUIT",
     `<h2>You Have a New Recruit! 🎉</h2>
-     <p>Hi ${uplineFirstName}, great news — <strong>${recruitFirstName} ${recruitLastName}</strong> just joined Kemchuta Homes using your referral link.</p>`,
+     <p>Hi ${escapeHtml(uplineFirstName)}, great news — <strong>${escapeHtml(recruitFirstName)} ${escapeHtml(recruitLastName)}</strong> just joined Kemchuta Homes using your referral link.</p>`,
     `<p style="font-size:15px;color:#525252;">They're now part of your downline network. As they close sales, your commission tiers benefit from their activity too.</p>
     <div class="btn-wrapper"><a href="${FRONTEND()}/dashboard/recruits" class="btn">View My Recruits</a></div>`,
   );
@@ -501,7 +502,7 @@ export async function notifyRealtorCommissionPaid({
   const html = baseHtml(
     "COMMISSION PAID",
     `<h2>Commission Paid Out! 💰</h2>
-     <p>Hi ${realtorName}, your commission has been paid.</p>`,
+     <p>Hi ${escapeHtml(realtorName)}, your commission has been paid.</p>`,
     `${dataRows([
       ["Amount", fmtNGN(netAmount)],
       ["For", saleLabel || "—"],
@@ -534,7 +535,7 @@ export async function notifyRealtorCommissionClawedback({
   const html = baseHtml(
     "COMMISSION REVERSED",
     `<h2>Commission Reversed</h2>
-     <p>Hi ${realtorName}, a commission on your account has been reversed.</p>`,
+     <p>Hi ${escapeHtml(realtorName)}, a commission on your account has been reversed.</p>`,
     `${dataRows([
       ["Amount", fmtNGN(netAmount)],
       ["For", saleLabel || "—"],

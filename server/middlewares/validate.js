@@ -15,19 +15,36 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+import { isValidObjectId } from "mongoose";
+
+// Clients display `message` directly, so it carries the first real problem.
+// zod's built-in wording doesn't name the field; our own messages already do.
+const validationFailure = (issues) => {
+  const errors = issues.map((issue) => ({
+    path: issue.path.join("."),
+    message: issue.message,
+  }));
+  const [first] = errors;
+  const isGeneric = /^(Invalid input|Invalid option|Too (small|big))/.test(first.message);
+  return {
+    message: isGeneric && first.path ? `${first.path}: ${first.message}` : first.message,
+    errors,
+  };
+};
+
+// For router.param("id", ...): a malformed id is a 400, not a CastError 500.
+export const rejectInvalidIdParam = (label) => (req, res, next, id) => {
+  if (isValidObjectId(id)) return next();
+  return res.status(400).json({ message: `Invalid ${label} ID` });
+};
+
 export const validate =
   (schema, source = "body") =>
   (req, res, next) => {
     const result = schema.safeParse(req[source]);
 
     if (!result.success) {
-      return res.status(400).json({
-        message: "Validation failed",
-        errors: result.error.issues.map((issue) => ({
-          path: issue.path.join("."),
-          message: issue.message,
-        })),
-      });
+      return res.status(400).json(validationFailure(result.error.issues));
     }
 
     if (source !== "query") {
@@ -55,13 +72,7 @@ export const validateMultipart = (schema) => (req, res, next) => {
 
   const result = schema.safeParse(raw);
   if (!result.success) {
-    return res.status(400).json({
-      message: "Validation failed",
-      errors: result.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      })),
-    });
+    return res.status(400).json(validationFailure(result.error.issues));
   }
 
   req.validatedBody = result.data;

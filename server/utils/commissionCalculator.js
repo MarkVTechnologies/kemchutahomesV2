@@ -63,7 +63,8 @@ async function getHierarchy(startRealtorId) {
 // percentages) differ.
 function splitCommission(saleAmount, percent, whtPercent) {
   const grossAmount = Math.round((saleAmount * percent) / 100);
-  const whtAmount = Math.round((grossAmount * (whtPercent || 5)) / 100);
+  // ?? not ||: an admin-configured rate of 0% must stay 0%.
+  const whtAmount = Math.round((grossAmount * (whtPercent ?? 5)) / 100);
   const netAmount = grossAmount - whtAmount;
   return { grossAmount, whtAmount, netAmount };
 }

@@ -22,6 +22,16 @@ export const chatLimiter = rateLimit({
   message: { message: "You're sending messages too fast. Please slow down." },
 });
 
+// ── Public booking/subscription/investment forms — each sends email + paid SMS
+// to an address the caller chooses. Generous, since mobile carriers share IPs.
+export const publicFormLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many submissions. Please try again later." },
+});
+
 // ── Public contact form — sends email ──────────────────────────────────────────
 export const contactLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,

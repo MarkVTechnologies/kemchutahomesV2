@@ -10,6 +10,7 @@ import {
   deleteInspection,
 } from "../controllers/inspection.controller.js";
 import { protect, isAdmin, hasPermission } from "../middlewares/authMiddleware.js";
+import { publicFormLimiter } from "../middlewares/rateLimiters.js";
 import { validate } from "../middlewares/validate.js";
 import {
   bookInspectionSchema,
@@ -21,7 +22,7 @@ import {
 
 const router = express.Router();
 
-router.post("/", validate(bookInspectionSchema), bookInspection); // Public
+router.post("/", publicFormLimiter, validate(bookInspectionSchema), bookInspection); // Public
 router.get("/", protect, isAdmin, hasPermission("manage_inspections"), getAllInspections); // Admin
 router.post(
   "/admin",

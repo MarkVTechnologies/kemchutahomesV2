@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { email, password } from "./common.js";
+import { dateOfBirth, email, password } from "./common.js";
 
 export const realtorSignupSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required"),
@@ -13,7 +13,7 @@ export const realtorSignupSchema = z.object({
   accountNumber: z.string().trim().optional(),
   password,
   ref: z.string().trim().optional(),
-  birthDate: z.coerce.date({ error: "Valid birth date is required" }),
+  birthDate: dateOfBirth("Enter a valid date of birth, for example 1990-12-25"),
   avatar: z.string().trim().optional(),
 });
 

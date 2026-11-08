@@ -17,6 +17,8 @@ import {
 import { sendEmail, sendSMS } from "../utils/notifications.js";
 import { getActiveBankAccounts } from "./Bankaccount.controller.js";
 import { calculateBuy2SellCommissions } from "../utils/commissionCalculator.js";
+import { parsePagination } from "../utils/pagination.js";
+import { userHasPermission } from "../middlewares/authMiddleware.js";
 
 // ── :id guard ────────────────────────────────────────────────────────────────
 // Mirrors estate.controller.js's rejectedInvalidId — without it, a malformed
@@ -98,7 +100,7 @@ const wrap = (content) => `
 
 const infoBox = (rows) =>
   `<div style="background:#f9f6ff;border-radius:10px;padding:18px 20px;margin:20px 0;border-left:4px solid #700CEB;">
-    ${rows.map(([l, v]) => `<p style="margin:5px 0;font-size:13px;color:#374151;"><strong>${l}:</strong> ${v}</p>`).join("")}
+    ${rows.map(([l, v]) => `<p style="margin:5px 0;font-size:13px;color:#374151;"><strong>${l}:</strong> ${escapeHtml(v)}</p>`).join("")}
   </div>`;
 
 // Mirrors subscription.controller.js's bankBox — same fallback, field set,
@@ -326,7 +328,7 @@ export const submitBuy2SellLead = async (req, res) => {
           },
         ],
         html: wrap(`
-          <h2 style="color:#0f0a1e;font-size:22px;font-weight:900;margin:0 0 8px;">Congratulations, ${lead.fullName}! 🎉</h2>
+          <h2 style="color:#0f0a1e;font-size:22px;font-weight:900;margin:0 0 8px;">Congratulations, ${escapeHtml(lead.fullName)}! 🎉</h2>
           <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
             Your Buy2Sell investment application has been received. Here are your investment details:
           </p>
@@ -418,7 +420,8 @@ export const submitBuy2SellLead = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getAllLeads = async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, search } = req.query;
+    const { status, search } = req.query;
+    const { page, limit, skip } = parsePagination(req.query);
     const filter = {};
     if (status) filter.status = status;
     if (search) {
@@ -429,12 +432,11 @@ export const getAllLeads = async (req, res) => {
         { referenceNumber: { $regex: safeSearch, $options: "i" } },
       ];
     }
-    const skip = (Number(page) - 1) * Number(limit);
     const [leads, total] = await Promise.all([
       Buy2SellLead.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(Number(limit))
+        .limit(limit)
         .lean(),
       Buy2SellLead.countDocuments(filter),
     ]);
@@ -466,8 +468,8 @@ export const getAllLeads = async (req, res) => {
     res.json({
       leads,
       total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
+      page,
+      pages: Math.ceil(total / limit),
     });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch leads" });
@@ -563,6 +565,8 @@ export const recordPayment = async (req, res) => {
     }
 
     const update = { status: newStatus };
+    // Extra payments on an active investment must not re-send its activation.
+    const becameActive = newStatus === "active" && lead.status !== "active";
 
     // If fully paid, set investmentDate and maturityDate
     if (newStatus === "active" && !lead.investmentDate) {
@@ -588,7 +592,7 @@ export const recordPayment = async (req, res) => {
     // Subscription does, since activation already requires the full amount.
     // Placed after the lead write (not before) so a commission can never be
     // created for a payment that failed to persist.
-    if (newStatus === "active" && updatedLead.realtorId) {
+    if (becameActive && updatedLead.realtorId) {
       calculateBuy2SellCommissions(updatedLead._id, updatedLead.realtorId).catch(
         (e) => console.error("Buy2Sell commission calc error:", e.message),
       );
@@ -597,7 +601,7 @@ export const recordPayment = async (req, res) => {
     const banks = await getActiveBankAccounts();
 
     // ── Send email based on status ─────────────────────────────────────────
-    if (newStatus === "active") {
+    if (becameActive) {
       // Full payment confirmed — generate certificate + send activation email
       try {
         const certBuf = await generateInvestmentCertificate(updatedLead);
@@ -615,7 +619,7 @@ export const recordPayment = async (req, res) => {
           html: wrap(`
             <h2 style="color:#059669;font-size:22px;font-weight:900;margin:0 0 8px;">Investment Activated! ✅</h2>
             <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-              Dear <strong>${updatedLead.fullName}</strong>, your investment of <strong>${fmtNGN(updatedLead.principalAmount)}</strong>
+              Dear <strong>${escapeHtml(updatedLead.fullName)}</strong>, your investment of <strong>${fmtNGN(updatedLead.principalAmount)}</strong>
               has been fully confirmed and your investment is now <strong>active</strong>.
             </p>
             ${infoBox([
@@ -662,7 +666,7 @@ export const recordPayment = async (req, res) => {
         html: wrap(`
           <h2 style="color:#700CEB;font-size:22px;font-weight:900;margin:0 0 8px;">Payment Received</h2>
           <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-            Dear <strong>${updatedLead.fullName}</strong>, we have received a payment of
+            Dear <strong>${escapeHtml(updatedLead.fullName)}</strong>, we have received a payment of
             <strong>${fmtNGN(Number(amount))}</strong> toward your Buy2Sell investment.
           </p>
           ${infoBox([
@@ -690,12 +694,19 @@ export const recordPayment = async (req, res) => {
 export const markMatured = async (req, res) => {
   if (rejectedInvalidId(req, res)) return;
   try {
-    const lead = await Buy2SellLead.findByIdAndUpdate(
-      req.params.id,
+    // Only from active: marking a paid-out investment matured would reopen it
+    // for a second payout.
+    const lead = await Buy2SellLead.findOneAndUpdate(
+      { _id: req.params.id, status: "active" },
       { status: "matured" },
       { new: true },
     );
-    if (!lead) return res.status(404).json({ message: "Investment not found" });
+    if (!lead) {
+      const exists = await Buy2SellLead.exists({ _id: req.params.id });
+      return exists
+        ? res.status(400).json({ message: "Only an active investment can be marked matured." })
+        : res.status(404).json({ message: "Investment not found" });
+    }
 
     await sendEmail({
       to: lead.email,
@@ -703,7 +714,7 @@ export const markMatured = async (req, res) => {
       html: wrap(`
         <h2 style="color:#059669;font-size:22px;font-weight:900;margin:0 0 8px;">Your Investment Has Matured! 🎊</h2>
         <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-          Dear <strong>${lead.fullName}</strong>, congratulations! Your Buy2Sell investment has reached maturity.
+          Dear <strong>${escapeHtml(lead.fullName)}</strong>, congratulations! Your Buy2Sell investment has reached maturity.
           Your payout of <strong>${fmtNGN(lead.expectedPayout)}</strong> is being processed.
         </p>
         ${infoBox([
@@ -741,8 +752,10 @@ export const processPayout = async (req, res) => {
     if (!lead) return res.status(404).json({ message: "Investment not found" });
 
     const payout = actualPayout || lead.expectedPayout;
-    const updated = await Buy2SellLead.findByIdAndUpdate(
-      lead._id,
+    // The status filter makes this atomic: of two simultaneous requests, only
+    // one can move the investment out of "matured" and record a payout.
+    const updated = await Buy2SellLead.findOneAndUpdate(
+      { _id: lead._id, status: "matured" },
       {
         actualPayout: payout,
         payoutDate: new Date(),
@@ -760,6 +773,11 @@ export const processPayout = async (req, res) => {
       },
       { new: true },
     );
+    if (!updated) {
+      return res.status(400).json({
+        message: "Only a matured investment that hasn't been paid out can be paid.",
+      });
+    }
 
     try {
       const confirmBuf = await generatePayoutConfirmation(updated);
@@ -776,7 +794,7 @@ export const processPayout = async (req, res) => {
         html: wrap(`
           <h2 style="color:#059669;font-size:22px;font-weight:900;margin:0 0 8px;">Payout Sent! 🎉</h2>
           <p style="color:#374151;font-size:15px;line-height:1.75;margin:0 0 16px;">
-            Dear <strong>${updated.fullName}</strong>, your Buy2Sell investment payout of
+            Dear <strong>${escapeHtml(updated.fullName)}</strong>, your Buy2Sell investment payout of
             <strong>${fmtNGN(payout)}</strong> has been processed and sent!
           </p>
           ${infoBox([
@@ -837,8 +855,24 @@ export const downloadDocument = async (req, res) => {
     ) {
       return res.status(403).json({ message: "Access denied." });
     }
+    if (req.user?.role !== "client" && !userHasPermission(req.user, "buy2sell")) {
+      return res
+        .status(403)
+        .json({ message: "You do not have permission to access this section." });
+    }
 
     const { docType } = req.params;
+
+    // An investor must not be able to pull a certificate before the money is
+    // in, or a payout confirmation before the payout.
+    const availableFrom = {
+      certificate: ["active", "matured", "paid_out", "closed"],
+      payout_confirmation: ["paid_out", "closed"],
+    };
+    if (req.user?.role === "client" && availableFrom[docType]?.includes(lead.status) === false) {
+      return res.status(404).json({ message: "Document not available." });
+    }
+
     let buf;
     if (docType === "certificate")
       buf = await generateInvestmentCertificate(lead);

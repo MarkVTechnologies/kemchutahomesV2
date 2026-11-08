@@ -36,7 +36,8 @@ import { getCachedSystemPrompt } from "../utils/chatPromptCache.js";
 export async function buildSystemPrompt() {
   // Fetch all live data in parallel — failures are caught individually
   const [estates, roi, kb, branches] = await Promise.all([
-    Estate.find({})
+    // Deactivated estates must not be quoted to customers.
+    Estate.find({ isActive: { $ne: false } })
       .select(
         "estate location address price sqm title purpose desc paymentPlans",
       )

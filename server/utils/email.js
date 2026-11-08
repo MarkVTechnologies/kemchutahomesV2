@@ -1,3 +1,4 @@
+import { escapeHtml } from "./escapeHtml.js";
 import { Resend } from "resend";
 
 // Lazy-init Resend client (shared across all functions) — constructing this
@@ -66,7 +67,7 @@ export const sendWelcomeEmail = async ({ email, firstName }) => {
                 <h1>Kemchuta Homes</h1>
               </div>
               <div class="content">
-                <h2>Welcome aboard, ${firstName}! 👋</h2>
+                <h2>Welcome aboard, ${escapeHtml(firstName)}! 👋</h2>
                 <p>We're thrilled to have you join our network of professional realtors. At Kemchuta Homes, we provide you with the tools and platform to scale your real estate career to new heights.</p>
                 <p>Your account is now fully active. You can log in to your personalized dashboard to access property listings, track your earnings, and manage your referrals.</p>
                 <div class="btn-wrapper">
@@ -168,7 +169,7 @@ export const sendPasswordResetEmail = async ({
               </div>
               <div class="content">
                 <h2>Password Reset Request 🔐</h2>
-                <p>Hi ${firstName},</p>
+                <p>Hi ${escapeHtml(firstName)},</p>
                 <p>We received a request to reset the password for your Kemchuta Homes account. Click the button below to choose a new password.</p>
                 <div class="btn-wrapper">
                   <a href="${resetUrl}" class="btn">Reset My Password</a>
@@ -372,8 +373,8 @@ export const sendAdminInviteEmail = async ({
               </div>
               <div class="content">
                 <h2>You're Invited! 🎉</h2>
-                <p>Hi ${firstName || "there"},</p>
-                <p><strong>${invitedByEmail}</strong> has invited you to join the Kemchuta Homes admin portal. Click the button below to set up your password and activate your account.</p>
+                <p>Hi ${escapeHtml(firstName || "there")},</p>
+                <p><strong>${escapeHtml(invitedByEmail)}</strong> has invited you to join the Kemchuta Homes admin portal. Click the button below to set up your password and activate your account.</p>
                 <div class="btn-wrapper">
                   <a href="${setupUrl}" class="btn">Set Up My Account</a>
                 </div>
@@ -454,7 +455,7 @@ export const sendInspectionNotification = async (inspection) => {
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; background: #f9f9fb; border-radius: 12px;">
           <div style="background: linear-gradient(135deg, #3F0C91, #700CEB); padding: 28px 32px; border-radius: 10px; margin-bottom: 28px;">
             <h1 style="color: #fff; margin: 0; font-size: 22px; font-weight: 900; letter-spacing: -0.03em;">New Inspection Booking</h1>
-            <p style="color: rgba(255,255,255,0.7); margin: 6px 0 0; font-size: 14px;">${estateName}</p>
+            <p style="color: rgba(255,255,255,0.7); margin: 6px 0 0; font-size: 14px;">${escapeHtml(estateName)}</p>
           </div>
           <table style="width: 100%; border-collapse: collapse;">
             ${[
@@ -472,7 +473,7 @@ export const sendInspectionNotification = async (inspection) => {
                 ([label, value]) => `
               <tr>
                 <td style="padding: 12px 0; border-bottom: 1px solid #eee; font-size: 13px; color: #6b7280; font-weight: 600; width: 40%;">${label}</td>
-                <td style="padding: 12px 0; border-bottom: 1px solid #eee; font-size: 14px; color: #0f0a1e; font-weight: 700;">${value}</td>
+                <td style="padding: 12px 0; border-bottom: 1px solid #eee; font-size: 14px; color: #0f0a1e; font-weight: 700;">${escapeHtml(value)}</td>
               </tr>
             `,
               )
@@ -559,7 +560,7 @@ export const sendClientWelcomeEmail = async ({ email, firstName }) => {
                 <span class="badge">CLIENT PORTAL</span>
               </div>
               <div class="content">
-                <h2>Welcome, ${firstName}! 👋</h2>
+                <h2>Welcome, ${escapeHtml(firstName)}! 👋</h2>
                 <p>Your Kemchuta Homes client portal is now active. You have a secure, personal space to manage all aspects of your property journey with us.</p>
                 <ul class="feature-list">
                   <li>Track your land subscription status in real-time</li>
@@ -652,7 +653,7 @@ export const sendClientPasswordResetEmail = async ({
               </div>
               <div class="content">
                 <h2>Password Reset Request 🔐</h2>
-                <p>Hi ${firstName},</p>
+                <p>Hi ${escapeHtml(firstName)},</p>
                 <p>We received a request to reset the password for your Kemchuta Homes client portal. Click the button below to set a new password.</p>
                 <div class="btn-wrapper">
                   <a href="${resetUrl}" class="btn">Reset My Password</a>

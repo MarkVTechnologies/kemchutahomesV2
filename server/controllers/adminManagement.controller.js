@@ -191,9 +191,13 @@ export const completeAdminSetup = async (req, res) => {
     const { token, password } = req.body;
 
     const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+    // Invites and forgot-password share this token field. Without the status
+    // filter, a suspended admin could request a reset, post that token here,
+    // and be set back to "active".
     const admin = await Admin.findOne({
       resetPasswordToken: hashedToken,
       resetPasswordExpiry: { $gt: Date.now() },
+      status: "pending",
     });
 
     if (!admin) {

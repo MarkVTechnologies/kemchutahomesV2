@@ -8,6 +8,7 @@ import { Buy2SellLead } from "../models/Buy2sell.model.js";
 import { sendEmail } from "../utils/notifications.js";
 import { sendClientWelcomeEmail } from "../utils/email.js";
 import { issueAuthCookies } from "../utils/authTokens.js";
+import { parsePagination } from "../utils/pagination.js";
 import { getLockoutStatus, recordFailedLogin, recordSuccessfulLogin } from "../utils/loginLockout.js";
 
 const FRONTEND = () =>
@@ -133,7 +134,7 @@ export const loginClient = async (req, res) => {
 export const getClientProfile = async (req, res) => {
   try {
     const client = await Client.findById(req.user.id)
-      .select("-passwordHash")
+      .select("-passwordHash -resetPasswordToken -resetPasswordExpiry")
       .lean();
     if (!client) return res.status(404).json({ message: "Client not found" });
     res.json(client);
@@ -150,7 +151,7 @@ export const updateMyProfile = async (req, res) => {
     const updated = await Client.findByIdAndUpdate(req.user.id, req.body, {
       new: true,
       runValidators: true,
-    }).select("-passwordHash");
+    }).select("-passwordHash -resetPasswordToken -resetPasswordExpiry");
     if (!updated) return res.status(404).json({ message: "Client not found" });
     return res.json(updated);
   } catch (err) {
@@ -174,7 +175,7 @@ export const changeMyPassword = async (req, res) => {
     }
 
     client.passwordHash = await bcrypt.hash(newPassword, 12);
-    await client.save();
+    await client.save({ validateModifiedOnly: true });
 
     return res.json({ message: "Password changed successfully" });
   } catch (err) {
@@ -382,16 +383,16 @@ export const checkEmailExists = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getClientInspections = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status } = req.query;
+    const { status } = req.query;
+    const { page, limit, skip } = parsePagination(req.query, 10);
     const filter = { email: req.user.email };
     if (status) filter.status = status;
 
-    const skip = (Number(page) - 1) * Number(limit);
     const [inspections, total] = await Promise.all([
       Inspection.find(filter)
         .sort({ inspectionDate: -1 })
         .skip(skip)
-        .limit(Number(limit))
+        .limit(limit)
         .lean(),
       Inspection.countDocuments(filter),
     ]);
@@ -399,8 +400,8 @@ export const getClientInspections = async (req, res) => {
     res.json({
       inspections,
       total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
+      page,
+      pages: Math.ceil(total / limit),
     });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch inspections." });

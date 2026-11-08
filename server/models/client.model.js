@@ -11,7 +11,9 @@ const clientSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    phone: { type: String, required: true, trim: true },
+    // Optional at signup (see registerClientSchema and the web form), so
+    // requiring it here turned a blank phone into a 500.
+    phone: { type: String, trim: true, default: "" },
     passwordHash: { type: String, required: true },
 
     // ── Password reset ──────────────────────────────────────────────────────
