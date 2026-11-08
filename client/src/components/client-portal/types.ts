@@ -42,6 +42,7 @@ export type DashboardStats = {
 };
 
 export type ClientDashboard = {
+  emailVerified?: boolean;
   stats: DashboardStats;
   recentSubscriptions: PortalSubscription[];
   recentInvestments: PortalInvestment[];

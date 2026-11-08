@@ -5,6 +5,7 @@ import { CalendarCheck } from "lucide-react";
 import { buildMetadata } from "@/lib/seo";
 import LogoutButton from "@/components/client-auth/LogoutButton";
 import OverviewSection from "@/components/client-portal/OverviewSection";
+import ConfirmEmailBanner from "@/components/client-portal/ConfirmEmailBanner";
 import type { ClientDashboard } from "@/components/client-portal/types";
 
 export const metadata = buildMetadata({
@@ -100,6 +101,8 @@ export default async function ClientPortalPage() {
           </div>
         </div>
       </div>
+
+      {dashboard?.emailVerified === false && <ConfirmEmailBanner email={client.email} />}
 
       {dashboard ? (
         <OverviewSection dashboard={dashboard} />
